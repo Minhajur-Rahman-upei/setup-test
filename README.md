@@ -50,3 +50,4 @@ R/00_download_data.R      optional CDC network check
 data/raw/.gitkeep         keeps the empty dir tracked
 .gitignore                data, build artifacts, renv library
 ```
+scratch
