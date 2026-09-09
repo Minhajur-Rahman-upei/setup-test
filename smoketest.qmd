@@ -1,0 +1,186 @@
+---
+title: "MCS 8920 — Environment Smoke Test"
+author: "Minhajur Rahman"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    fig-width: 7
+    fig-height: 3.5
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+# If any of these fail to load, that package didn't install --
+# note which one and stop here rather than debugging downstream errors.
+library(tidyverse)
+library(haven)
+library(survey)
+library(srvyr)
+library(gtsummary)
+library(janitor)
+library(here)
+library(naniar)
+library(patchwork)
+library(sessioninfo)
+```
+
+# What this document tests
+
+Each section below exercises one part of the toolchain. If the whole
+thing renders to PDF, the environment is ready for the real project.
+
+| Section | What it proves |
+|---|---|
+| 2 | R runs, `here()` resolves the project root |
+| 3 | `haven` reads and writes NHANES-style `.XPT` files |
+| 4 | `survey` + `srvyr` handle a complex design correctly |
+| 5 | `gtsummary` produces a table that survives LaTeX |
+| 6 | `ggplot2` + `patchwork` render figures into the PDF |
+| 7 | `naniar` works (missingness is a graded decision later) |
+| 8 | Session is reproducible and reportable |
+
+The fact that you are reading this as a PDF at all proves Quarto and
+TinyTeX are working.
+
+# Project root and paths
+
+`here()` anchors paths to the `.Rproj` file rather than to the working
+directory. This matters because a Quarto chunk's working directory is
+not always what you expect, and hardcoded paths are the most common
+reason someone else's repo fails to render on your machine.
+
+```{r}
+#| label: paths
+here()
+file.exists(here("data", "raw"))
+```
+
+# haven: reading and writing XPT
+
+NHANES ships as SAS transport files. Rather than depend on the CDC
+being reachable right now, this round-trips a small file: write it,
+read it back, confirm it survived. Same code path `read_xpt()` will
+take on the real data.
+
+```{r}
+#| label: xpt-roundtrip
+demo <- tibble(
+  seqn = 1:6,
+  age  = c(34, 51, 22, 67, 45, 29),
+  sex  = c(1, 2, 2, 1, 2, 1)
+)
+
+xpt_path <- here("data", "raw", "demo_test.xpt")
+write_xpt(demo, xpt_path)
+
+back <- read_xpt(xpt_path)
+back
+
+identical(dim(demo), dim(back))
+```
+
+`R/00_download_data.R` attempts a real CDC download separately — run it
+if you also want to confirm network access, but it is not needed for
+this render.
+
+# Complex survey design
+
+This uses the `api` data bundled with the `survey` package: a real
+cluster sample with weights (`pw`), a clustering variable (`dnum`), and
+a finite population correction (`fpc`). Structurally the same problem as
+NHANES's `SDMVSTRA` / `SDMVPSU` / `WTMECPRP`, without needing a download.
+
+```{r}
+#| label: survey-design
+data(api)
+
+des <- apiclus1 |>
+  as_survey_design(ids = dnum, weights = pw, fpc = fpc)
+
+des |>
+  summarise(
+    mean_api00 = survey_mean(api00, vartype = "ci"),
+    n_obs      = unweighted(n())
+  )
+```
+
+The point of the comparison below: the naive mean ignores the design and
+gives a different answer with a much narrower, and wrong, interval.
+
+```{r}
+#| label: naive-vs-weighted
+tibble(
+  estimate = c("Naive (unweighted)", "Design-based"),
+  api00    = c(mean(apiclus1$api00), coef(svymean(~api00, des)))
+)
+```
+
+```{r}
+#| label: janitor-demo
+apiclus1 |> tabyl(stype)
+```
+
+# Table output
+
+`gtsummary` renders through `gt` by default, which is fussy in LaTeX.
+`as_kable()` is the reliable path for PDF output — worth knowing before
+the real report is due.
+
+```{r}
+#| label: table
+svy <- svydesign(id = ~dnum, weights = ~pw, fpc = ~fpc, data = apiclus1)
+
+tbl_svysummary(
+  svy,
+  by      = stype,
+  include = c(api00, ell, meals)
+) |>
+  as_kable()
+```
+
+# Figures
+
+```{r}
+#| label: figures
+#| fig-cap: "Left: school-level poverty proxy against test score. Right: score by school type."
+p1 <- ggplot(apiclus1, aes(x = meals, y = api00)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "% eligible for subsidised meals", y = "API score") +
+  theme_minimal()
+
+p2 <- ggplot(apiclus1, aes(x = stype, y = api00)) +
+  geom_boxplot() +
+  labs(x = "School type", y = NULL) +
+  theme_minimal()
+
+p1 + p2
+```
+
+# Missingness
+
+How missing data is handled is one of the decisions that has to be
+defended in `DECISIONS.md`, so confirm the tooling works now.
+
+```{r}
+#| label: missingness
+apiclus1 |>
+  select(api00, ell, meals, avg.ed, hsg) |>
+  gg_miss_var() +
+  theme_minimal()
+```
+
+# Session information
+
+Paste this into an issue if you and a teammate get different results.
+
+```{r}
+#| label: sessioninfo
+session_info()
+```

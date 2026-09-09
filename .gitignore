@@ -1,0 +1,18 @@
+# data is downloaded/generated, never committed
+data/raw/*
+!data/raw/.gitkeep
+
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user/
+.Renviron
+
+# Quarto
+/.quarto/
+*_files/
+smoketest.pdf
+
+# renv (keep the lockfile, ignore the library)
+renv/library/
+renv/staging/
