@@ -1,4 +1,4 @@
-# MCS 8920 — Environment Smoke Test
+# MCS 8920: Environment Smoke Test
 
 ### 1. Render locally (tests R, packages, Quarto, TinyTeX)
 
